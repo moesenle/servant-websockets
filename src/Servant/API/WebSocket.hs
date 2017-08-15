@@ -14,6 +14,21 @@ import Servant.Server                             (HasServer (..), ServantErr (.
 import Servant.Server.Internal.Router             (leafRouter)
 import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
 
+-- | Endpoint for defining a route to provide a web socket. The
+-- handler function gets an already negotiated websocket 'Connection'
+-- to send and receive data.
+--
+-- Example:
+--
+-- > type WebSocketApi = "stream" :> WebSocket
+-- >
+-- > server :: Server WebSocketApi
+-- > server = streamData
+-- >  where
+-- >   streamData :: MonadIO m => Connection -> m ()
+-- >   streamData c = liftIO . forM_ [1..] $ \i -> do
+-- >     forkPingThread c 10
+-- >     sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
 data WebSocket
 
 instance HasServer WebSocket ctx where

@@ -27,6 +27,30 @@ import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
 
 import qualified Data.Conduit.List as CL
 
+-- | Endpoint for defining a route to provide a websocket. In contrast
+-- to the 'WebSocket' endpoint, 'WebSocketConduit' provides a
+-- higher-level interface. The handler function must be of type
+-- @Conduit i m o@ with @i@ and @o@ being instances of 'FromJSON' and
+-- 'ToJSON' respectively. 'await' reads from the web socket while
+-- 'yield' writes to it.
+--
+-- Example:
+--
+-- >
+-- > import Data.Aeson (Value)
+-- > import qualified Data.Conduit.List as CL
+-- >
+-- > type WebSocketApi = "echo" :> WebSocketConduit Value Value
+-- >
+-- > server :: Server WebSocketApi
+-- > server = echo
+-- >  where
+-- >   echo :: Monad m => Conduit Value m Value
+-- >   echo = CL.map id
+-- >
+--
+-- Note that the input format on the web socket is JSON, hence this
+-- example only echos valid JSON data.
 data WebSocketConduit i o
 
 instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
