@@ -10,7 +10,7 @@ maintainer:          moesenle@gmail.com
 copyright:           2017 Lorenz Moesenlechner
 category:            Servant, Web
 build-type:          Simple
-extra-source-files:  README.md
+extra-source-files:  README.md CHANGELOG.md
 cabal-version:       >=1.10
 
 library
