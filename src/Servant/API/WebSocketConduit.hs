@@ -1,12 +1,13 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeFamilies          #-}
 
 module Servant.API.WebSocketConduit where
 
 import Control.Concurrent                         (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.Async                   (withAsync)
+import Control.Concurrent.Async                   (race_)
 import Control.Monad                              (forever, (>=>))
 import Control.Monad.Catch                        (handle)
 import Control.Monad.IO.Class                     (liftIO)
@@ -15,9 +16,11 @@ import Data.Aeson                                 (FromJSON, ToJSON, decode, enc
 import Data.ByteString.Lazy                       (fromStrict)
 import Data.Conduit                               (Conduit, runConduitRes, yieldM, (.|))
 import Data.Proxy                                 (Proxy (..))
+import Data.Text                                  (Text)
 import Network.Wai.Handler.WebSockets             (websocketsOr)
 import Network.WebSockets                         (ConnectionException, acceptRequest, defaultConnectionOptions,
-                                                   forkPingThread, receiveData, sendTextData)
+                                                   forkPingThread, receiveData, receiveDataMessage, sendClose,
+                                                   sendTextData)
 import Servant.Server                             (HasServer (..), ServantErr (..), ServerT)
 import Servant.Server.Internal.Router             (leafRouter)
 import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
@@ -45,11 +48,16 @@ instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
     runWSApp cond = acceptRequest >=> \c -> handle (\(_ :: ConnectionException) -> return ()) $ do
       forkPingThread c 10
       i <- newEmptyMVar
-      withAsync (forever $ receiveData c >>= putMVar i) $ \_ ->
-       runConduitRes $ forever (yieldM . liftIO $ takeMVar i)
-                    .| CL.mapMaybe (decode . fromStrict)
-                    .| cond
-                    .| CL.mapM_ (liftIO . sendTextData c . encode)
+      race_ (forever $ receiveData c >>= putMVar i) $ do
+        runConduitRes $ forever (yieldM . liftIO $ takeMVar i)
+                     .| CL.mapMaybe (decode . fromStrict)
+                     .| cond
+                     .| CL.mapM_ (liftIO . sendTextData c . encode)
+        sendClose c ("Out of data" :: Text)
+        -- After sending the close message, we keep receiving packages
+        -- (and drop them) until the connection is actually closed,
+        -- which is indicated by an exception.
+        forever $ receiveDataMessage c
 
     backupApp respond _ _ = respond $ Fail ServantErr { errHTTPCode = 426
                                                       , errReasonPhrase = "Upgrade Required"

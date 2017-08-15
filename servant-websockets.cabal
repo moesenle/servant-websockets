@@ -22,6 +22,7 @@ library
                      , exceptions
                      , resourcet
                      , servant-server
+                     , text
                      , wai
                      , wai-websockets
                      , warp
