@@ -1,14 +1,13 @@
 {-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators     #-}
 
 module Main where
 
 import Servant.API.WebSocketConduit (WebSocketConduit)
 
+import Data.Aeson               (Value)
 import Data.Conduit             (Conduit)
 import Data.Monoid              ((<>))
-import Data.Text                (Text)
 import Network.Wai              (Application)
 import Network.Wai.Handler.Warp (run)
 import Servant                  (Proxy (..), Server, serve)
@@ -16,7 +15,7 @@ import Servant                  (Proxy (..), Server, serve)
 import qualified Data.Conduit.List as CL
 
 
-type API = WebSocketConduit Text Text
+type API = WebSocketConduit Value Value
 
 startApp :: IO ()
 startApp = do
@@ -32,8 +31,8 @@ api = Proxy
 server :: Server API
 server = echo
 
-echo :: Monad m => Conduit Text m Text
-echo = CL.map $ \t -> "received " <> t
+echo :: Monad m => Conduit Value m Value
+echo = CL.map id
 
 main :: IO ()
 main = startApp
