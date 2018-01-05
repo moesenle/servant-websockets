@@ -27,9 +27,10 @@ import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
 -- > server = streamData
 -- >  where
 -- >   streamData :: MonadIO m => Connection -> m ()
--- >   streamData c = liftIO . forM_ [1..] $ \i -> do
--- >     forkPingThread c 10
--- >     sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
+-- >   streamData c = do
+-- >     liftIO $ forkPingThread c 10
+-- >     liftIO . forM_ [1..] $ \i -> do
+-- >        sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
 data WebSocket
 
 instance HasServer WebSocket ctx where
@@ -59,20 +60,22 @@ instance HasServer WebSocket ctx where
 
 -- | Endpoint for defining a route to provide a web socket. The
 -- handler function gets a 'PendingConnection'. It can either
--- 'rejectConnection' or 'acceptRequest'. This function is provided
+-- 'rejectRequest' or 'acceptRequest'. This function is provided
 -- for greater flexibility to reject connections.
 --
 -- Example:
 --
--- > type WebSocketApi = "stream" :> WebSocket
+-- > type WebSocketApi = "stream" :> WebSocketPending
 -- >
 -- > server :: Server WebSocketApi
 -- > server = streamData
 -- >  where
--- >   streamData :: MonadIO m => Connection -> m ()
--- >   streamData c = liftIO . forM_ [1..] $ \i -> do
--- >     forkPingThread c 10
--- >     sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
+-- >   streamData :: MonadIO m => PendingConnection -> m ()
+-- >   streamData pc = do
+-- >      c <- acceptRequest pc
+-- >      liftIO $ forkPingThread c 10
+-- >      liftIO . forM_ [1..] $ \i ->
+-- >        sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
 data WebSocketPending
 
 instance HasServer WebSocketPending ctx where

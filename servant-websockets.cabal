@@ -1,5 +1,5 @@
 name:                servant-websockets
-version:             1.0.0
+version:             1.1.0
 homepage:            https://github.com/moesenle/servant-websockets#readme
 synopsis:            Small library providing WebSocket endpoints for servant.
 description:         Small library providing WebSocket endpoints for servant.
