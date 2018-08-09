@@ -1,3 +1,7 @@
+# 1.2.0 - UNRELEASED
+
+  * Add instance for WebsocketSource.
+
 # Version 1.1.0
 
   * Compatibility with servant-0.12.

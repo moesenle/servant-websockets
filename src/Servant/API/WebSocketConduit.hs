@@ -69,7 +69,7 @@ instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
       websocketsOr
         defaultConnectionOptions
         (runWSApp cond)
-        (backupApp respond)
+        (\_ _ -> respond $ Fail upgradeRequired)
         request (respond . Route)
     go _ respond (Fail e) = respond $ Fail e
     go _ respond (FailFatal e) = respond $ FailFatal e
@@ -88,8 +88,40 @@ instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
         -- which is indicated by an exception.
         forever $ receiveDataMessage c
 
-    backupApp respond _ _ = respond $ Fail ServantErr { errHTTPCode = 426
-                                                      , errReasonPhrase = "Upgrade Required"
-                                                      , errBody = mempty
-                                                      , errHeaders = mempty
-                                                      }
+data WebSocketSource o
+
+instance ToJSON o => HasServer (WebSocketSource o) ctx where
+
+  type ServerT (WebSocketSource o) m = Conduit () (ResourceT IO) o
+
+#if MIN_VERSION_servant_server(0,12,0)
+  hoistServerWithContext _ _ _ svr = svr
+#endif
+
+  route Proxy _ app = leafRouter $ \env request respond -> runResourceT $
+    runDelayed app env request >>= liftIO . go request respond
+   where
+    go request respond (Route cond) =
+      websocketsOr
+        defaultConnectionOptions
+        (runWSApp cond)
+        (\_ _ -> respond $ Fail upgradeRequired)
+        request (respond . Route)
+    go _ respond (Fail e) = respond $ Fail e
+    go _ respond (FailFatal e) = respond $ FailFatal e
+
+    runWSApp cond = acceptRequest >=> \c -> handle (\(_ :: ConnectionException) -> return ()) $ do
+      forkPingThread c 10
+      runConduitRes $ cond .| CL.mapM_ (liftIO . sendTextData c . encode)
+      sendClose c ("Out of data" :: Text)
+      -- After sending the close message, we keep receiving packages
+      -- (and drop them) until the connection is actually closed,
+      -- which is indicated by an exception.
+      forever $ receiveDataMessage c
+
+upgradeRequired :: ServantErr
+upgradeRequired = ServantErr { errHTTPCode = 426
+                             , errReasonPhrase = "Upgrade Required"
+                             , errBody = mempty
+                             , errHeaders = mempty
+                             }
