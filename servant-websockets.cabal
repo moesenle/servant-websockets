@@ -42,6 +42,7 @@ executable websocket-echo
                      , conduit
                      , servant-server
                      , servant-websockets
+                     , text
                      , wai
                      , warp
   default-language:    Haskell2010
