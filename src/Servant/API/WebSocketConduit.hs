@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP                   #-}
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
@@ -9,19 +10,20 @@ module Servant.API.WebSocketConduit where
 
 import Control.Concurrent                         (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.Async                   (race_)
-import Control.Monad                              (forever, (>=>))
+import Control.Monad                              (forever, void, (>=>))
 import Control.Monad.Catch                        (handle)
-import Control.Monad.IO.Class                     (liftIO)
-import Control.Monad.Trans.Resource               (ResourceT, runResourceT)
+import Control.Monad.IO.Class                     (MonadIO, liftIO)
+import Control.Monad.Trans.Resource               (MonadBaseControl, ResourceT, runResourceT)
 import Data.Aeson                                 (FromJSON, ToJSON, decode, encode)
 import Data.ByteString.Lazy                       (fromStrict)
 import Data.Conduit                               (Conduit, runConduitRes, yieldM, (.|))
 import Data.Proxy                                 (Proxy (..))
 import Data.Text                                  (Text)
+import Data.Void                                  (Void)
 import Network.Wai.Handler.WebSockets             (websocketsOr)
-import Network.WebSockets                         (ConnectionException, acceptRequest, defaultConnectionOptions,
-                                                   forkPingThread, receiveData, receiveDataMessage, sendClose,
-                                                   sendTextData)
+import Network.WebSockets                         (Connection, ConnectionException, acceptRequest,
+                                                   defaultConnectionOptions, forkPingThread, receiveData,
+                                                   receiveDataMessage, sendClose, sendTextData)
 import Servant.Server                             (HasServer (..), ServantErr (..), ServerT)
 import Servant.Server.Internal.Router             (leafRouter)
 import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
@@ -75,19 +77,33 @@ instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
     go _ respond (FailFatal e) = respond $ FailFatal e
 
     runWSApp cond = acceptRequest >=> \c -> handle (\(_ :: ConnectionException) -> return ()) $ do
-      forkPingThread c 10
       i <- newEmptyMVar
-      race_ (forever $ receiveData c >>= putMVar i) $ do
-        runConduitRes $ forever (yieldM . liftIO $ takeMVar i)
-                     .| CL.mapMaybe (decode . fromStrict)
-                     .| cond
-                     .| CL.mapM_ (liftIO . sendTextData c . encode)
-        sendClose c ("Out of data" :: Text)
-        -- After sending the close message, we keep receiving packages
-        -- (and drop them) until the connection is actually closed,
-        -- which is indicated by an exception.
-        forever $ receiveDataMessage c
+      race_ (forever $ receiveData c >>= putMVar i) $
+        runConduitWebSocket c $
+          forever (yieldM . liftIO $ takeMVar i)
+          .| CL.mapMaybe (decode . fromStrict)
+          .| cond
+          .| CL.mapM_ (liftIO . sendTextData c . encode)
 
+-- | Endpoint for defining a route to provide a websocket. In contrast
+-- to the 'WebSocketConduit', this endpoint only produces data. It can
+-- be useful when implementing web sockets that simply just send data
+-- to clients.
+--
+-- Example:
+--
+-- > import Data.Text (Text)
+-- > import qualified Data.Conduit.List as CL
+-- >
+-- > type WebSocketApi = "hello" :> WebSocketSource Text
+-- >
+-- > server :: Server WebSocketApi
+-- > server = hello
+-- >  where
+-- >   hello :: Monad m => Conduit Text m ()
+-- >   hello = yield $ Just "hello"
+-- >
+--
 data WebSocketSource o
 
 instance ToJSON o => HasServer (WebSocketSource o) ctx where
@@ -110,14 +126,20 @@ instance ToJSON o => HasServer (WebSocketSource o) ctx where
     go _ respond (Fail e) = respond $ Fail e
     go _ respond (FailFatal e) = respond $ FailFatal e
 
-    runWSApp cond = acceptRequest >=> \c -> handle (\(_ :: ConnectionException) -> return ()) $ do
-      forkPingThread c 10
-      runConduitRes $ cond .| CL.mapM_ (liftIO . sendTextData c . encode)
-      sendClose c ("Out of data" :: Text)
-      -- After sending the close message, we keep receiving packages
-      -- (and drop them) until the connection is actually closed,
-      -- which is indicated by an exception.
-      forever $ receiveDataMessage c
+    runWSApp cond = acceptRequest >=> \c -> handle (\(_ :: ConnectionException) -> return ()) $
+      race_ (forever . void $ (receiveData c :: IO Text)) $
+        runConduitWebSocket c $ cond .| CL.mapM_ (liftIO . sendTextData c . encode)
+
+runConduitWebSocket :: (MonadBaseControl IO m, MonadIO m) => Connection -> Conduit () (ResourceT m) Void -> m ()
+runConduitWebSocket c a = do
+  liftIO $ forkPingThread c 10
+  void $ runConduitRes a
+  liftIO $ do
+    sendClose c ("Out of data" :: Text)
+    -- After sending the close message, we keep receiving packages
+    -- (and drop them) until the connection is actually closed,
+    -- which is indicated by an exception.
+    forever $ receiveDataMessage c
 
 upgradeRequired :: ServantErr
 upgradeRequired = ServantErr { errHTTPCode = 426
