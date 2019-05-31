@@ -1,5 +1,5 @@
 name:                servant-websockets
-version:             1.1.0
+version:             1.2.0
 homepage:            https://github.com/moesenle/servant-websockets#readme
 synopsis:            Small library providing WebSocket endpoints for servant.
 description:         Small library providing WebSocket endpoints for servant.
@@ -42,6 +42,7 @@ executable websocket-echo
                      , conduit
                      , servant-server
                      , servant-websockets
+                     , text
                      , wai
                      , warp
   default-language:    Haskell2010
