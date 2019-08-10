@@ -12,8 +12,9 @@ import Control.Concurrent                         (newEmptyMVar, putMVar, takeMV
 import Control.Concurrent.Async                   (race_)
 import Control.Monad                              (forever, void, (>=>))
 import Control.Monad.Catch                        (handle)
-import Control.Monad.IO.Class                     (MonadIO, liftIO)
-import Control.Monad.Trans.Resource               (MonadBaseControl, ResourceT, runResourceT)
+import Control.Monad.IO.Class                     (liftIO)
+import Control.Monad.Trans.Control                (MonadBaseControl)
+import Control.Monad.Trans.Resource               (MonadUnliftIO, ResourceT, runResourceT)
 import Data.Aeson                                 (FromJSON, ToJSON, decode, encode)
 import Data.ByteString.Lazy                       (fromStrict)
 import Data.Conduit                               (Conduit, runConduitRes, yieldM, (.|))
@@ -131,7 +132,7 @@ instance ToJSON o => HasServer (WebSocketSource o) ctx where
       race_ (forever . void $ (receiveData c :: IO Text)) $
         runConduitWebSocket c $ cond .| CL.mapM_ (liftIO . sendTextData c . encode)
 
-runConduitWebSocket :: (MonadBaseControl IO m, MonadIO m) => Connection -> Conduit () (ResourceT m) Void -> m ()
+runConduitWebSocket :: (MonadBaseControl IO m, MonadUnliftIO m) => Connection -> Conduit () (ResourceT m) Void -> m ()
 runConduitWebSocket c a = do
   liftIO $ forkPingThread c 10
   void $ runConduitRes a
