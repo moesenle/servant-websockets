@@ -13,7 +13,8 @@ import Network.Wai.Handler.WebSockets             (websocketsOr)
 import Network.WebSockets                         (Connection, PendingConnection, acceptRequest, defaultConnectionOptions)
 import Servant.Server                             (HasServer (..), ServerError (..), ServerT, runHandler)
 import Servant.Server.Internal.Router             (leafRouter)
-import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
+import Servant.Server.Internal.RouteResult        (RouteResult (..))
+import Servant.Server.Internal.Delayed            (runDelayed)
 
 -- | Endpoint for defining a route to provide a web socket. The
 -- handler function gets an already negotiated websocket 'Connection'

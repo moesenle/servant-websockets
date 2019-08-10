@@ -24,9 +24,10 @@ import Network.Wai.Handler.WebSockets             (websocketsOr)
 import Network.WebSockets                         (Connection, ConnectionException, acceptRequest,
                                                    defaultConnectionOptions, forkPingThread, receiveData,
                                                    receiveDataMessage, sendClose, sendTextData)
-import Servant.Server                             (HasServer (..), ServantErr (..), ServerT)
+import Servant.Server                             (HasServer (..), ServerError (..), ServerT)
 import Servant.Server.Internal.Router             (leafRouter)
-import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
+import Servant.Server.Internal.RouteResult        (RouteResult (..))
+import Servant.Server.Internal.Delayed            (runDelayed)
 
 import qualified Data.Conduit.List as CL
 
