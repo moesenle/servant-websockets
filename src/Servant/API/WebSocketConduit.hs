@@ -141,9 +141,9 @@ runConduitWebSocket c a = do
     -- which is indicated by an exception.
     forever $ receiveDataMessage c
 
-upgradeRequired :: ServantErr
-upgradeRequired = ServantErr { errHTTPCode = 426
-                             , errReasonPhrase = "Upgrade Required"
-                             , errBody = mempty
-                             , errHeaders = mempty
-                             }
+upgradeRequired :: ServerError
+upgradeRequired = ServerError { errHTTPCode = 426
+                              , errReasonPhrase = "Upgrade Required"
+                              , errBody = mempty
+                              , errHeaders = mempty
+                              }
