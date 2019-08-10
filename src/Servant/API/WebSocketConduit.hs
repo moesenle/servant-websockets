@@ -17,7 +17,7 @@ import Control.Monad.Trans.Control                (MonadBaseControl)
 import Control.Monad.Trans.Resource               (MonadUnliftIO, ResourceT, runResourceT)
 import Data.Aeson                                 (FromJSON, ToJSON, decode, encode)
 import Data.ByteString.Lazy                       (fromStrict)
-import Data.Conduit                               (Conduit, runConduitRes, yieldM, (.|))
+import Data.Conduit                               (ConduitT, runConduitRes, yieldM, (.|))
 import Data.Proxy                                 (Proxy (..))
 import Data.Text                                  (Text)
 import Data.Void                                  (Void)
@@ -50,7 +50,7 @@ import qualified Data.Conduit.List as CL
 -- > server :: Server WebSocketApi
 -- > server = echo
 -- >  where
--- >   echo :: Monad m => Conduit Value m Value
+-- >   echo :: Monad m => ConduitT Value Value m ()
 -- >   echo = CL.map id
 -- >
 --
@@ -60,7 +60,7 @@ data WebSocketConduit i o
 
 instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
 
-  type ServerT (WebSocketConduit i o) m = Conduit i (ResourceT IO) o
+  type ServerT (WebSocketConduit i o) m = ConduitT i o (ResourceT IO) ()
 
 #if MIN_VERSION_servant_server(0,12,0)
   hoistServerWithContext _ _ _ svr = svr
@@ -110,7 +110,7 @@ data WebSocketSource o
 
 instance ToJSON o => HasServer (WebSocketSource o) ctx where
 
-  type ServerT (WebSocketSource o) m = Conduit () (ResourceT IO) o
+  type ServerT (WebSocketSource o) m = ConduitT () o (ResourceT IO) ()
 
 #if MIN_VERSION_servant_server(0,12,0)
   hoistServerWithContext _ _ _ svr = svr
@@ -132,7 +132,7 @@ instance ToJSON o => HasServer (WebSocketSource o) ctx where
       race_ (forever . void $ (receiveData c :: IO Text)) $
         runConduitWebSocket c $ cond .| CL.mapM_ (liftIO . sendTextData c . encode)
 
-runConduitWebSocket :: (MonadBaseControl IO m, MonadUnliftIO m) => Connection -> Conduit () (ResourceT m) Void -> m ()
+runConduitWebSocket :: (MonadBaseControl IO m, MonadUnliftIO m) => Connection -> ConduitT () Void (ResourceT m) () -> m ()
 runConduitWebSocket c a = do
   liftIO $ forkPingThread c 10
   void $ runConduitRes a
