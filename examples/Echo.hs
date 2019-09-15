@@ -10,7 +10,7 @@ import Control.Concurrent       (threadDelay)
 import Control.Monad            (forever)
 import Control.Monad.IO.Class   (MonadIO (..))
 import Data.Aeson               (Value (..))
-import Data.Conduit             (Conduit, yield)
+import Data.Conduit             (ConduitT, yield)
 import Data.Text                (Text)
 import Network.Wai              (Application)
 import Network.Wai.Handler.Warp (run)
@@ -36,10 +36,10 @@ api = Proxy
 server :: Server API
 server = echo :<|> hello
 
-echo :: Monad m => Conduit Value m Value
+echo :: Monad m => ConduitT Value Value m ()
 echo = CL.map id
 
-hello :: MonadIO m => Conduit () m Text
+hello :: MonadIO m => ConduitT () Text m ()
 hello = forever $ do
   yield "hello world"
   liftIO $ threadDelay 1000000

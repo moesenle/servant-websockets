@@ -11,9 +11,10 @@ import Control.Monad.Trans.Resource               (runResourceT)
 import Data.Proxy                                 (Proxy (..))
 import Network.Wai.Handler.WebSockets             (websocketsOr)
 import Network.WebSockets                         (Connection, PendingConnection, acceptRequest, defaultConnectionOptions)
-import Servant.Server                             (HasServer (..), ServantErr (..), ServerT, runHandler)
+import Servant.Server                             (HasServer (..), ServerError (..), ServerT, runHandler)
 import Servant.Server.Internal.Router             (leafRouter)
-import Servant.Server.Internal.RoutingApplication (RouteResult (..), runDelayed)
+import Servant.Server.Internal.RouteResult        (RouteResult (..))
+import Servant.Server.Internal.Delayed            (runDelayed)
 
 -- | Endpoint for defining a route to provide a web socket. The
 -- handler function gets an already negotiated websocket 'Connection'
@@ -51,11 +52,11 @@ instance HasServer WebSocket ctx where
 
     runApp a = acceptRequest >=> \c -> void (runHandler $ a c)
 
-    backupApp respond _ _ = respond $ Fail ServantErr { errHTTPCode = 426
-                                                      , errReasonPhrase = "Upgrade Required"
-                                                      , errBody = mempty
-                                                      , errHeaders = mempty
-                                                      }
+    backupApp respond _ _ = respond $ Fail ServerError { errHTTPCode = 426
+                                                       , errReasonPhrase = "Upgrade Required"
+                                                       , errBody = mempty
+                                                       , errHeaders = mempty
+                                                       }
 
 
 -- | Endpoint for defining a route to provide a web socket. The
@@ -96,8 +97,8 @@ instance HasServer WebSocketPending ctx where
 
     runApp a c = void (runHandler $ a c)
 
-    backupApp respond _ _ = respond $ Fail ServantErr { errHTTPCode = 426
-                                                      , errReasonPhrase = "Upgrade Required"
-                                                      , errBody = mempty
-                                                      , errHeaders = mempty
-                                                      }
+    backupApp respond _ _ = respond $ Fail ServerError { errHTTPCode = 426
+                                                       , errReasonPhrase = "Upgrade Required"
+                                                       , errBody = mempty
+                                                       , errHeaders = mempty
+                                                       }
