@@ -15,8 +15,7 @@ import Control.Monad.Catch                        (handle)
 import Control.Monad.IO.Class                     (liftIO)
 import Control.Monad.Trans.Control                (MonadBaseControl)
 import Control.Monad.Trans.Resource               (MonadUnliftIO, ResourceT, runResourceT)
-import Data.Aeson                                 (FromJSON, ToJSON, decode, encode)
-import Data.ByteString.Lazy                       (fromStrict)
+import Data.Aeson                                 (ToJSON, encode)
 import Data.Conduit                               (ConduitT, runConduitRes, yieldM, (.|))
 import Data.Proxy                                 (Proxy (..))
 import Data.Text                                  (Text)
@@ -24,7 +23,7 @@ import Data.Void                                  (Void)
 import Network.Wai.Handler.WebSockets             (websocketsOr)
 import Network.WebSockets                         (Connection, ConnectionException, acceptRequest,
                                                    defaultConnectionOptions, forkPingThread, receiveData,
-                                                   receiveDataMessage, sendClose, sendTextData)
+                                                   receiveDataMessage, sendClose, sendTextData, WebSocketsData)
 import Servant.Server                             (HasServer (..), ServerError (..), ServerT)
 import Servant.Server.Internal.Router             (leafRouter)
 import Servant.Server.Internal.RouteResult        (RouteResult (..))
@@ -58,7 +57,7 @@ import qualified Data.Conduit.List as CL
 -- example only echos valid JSON data.
 data WebSocketConduit i o
 
-instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
+instance (WebSocketsData i, WebSocketsData o) => HasServer (WebSocketConduit i o) ctx where
 
   type ServerT (WebSocketConduit i o) m = ConduitT i o (ResourceT IO) ()
 
@@ -83,9 +82,8 @@ instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
       race_ (forever $ receiveData c >>= putMVar i) $
         runConduitWebSocket c $
           forever (yieldM . liftIO $ takeMVar i)
-          .| CL.mapMaybe (decode . fromStrict)
           .| cond
-          .| CL.mapM_ (liftIO . sendTextData c . encode)
+          .| CL.mapM_ (liftIO . sendTextData c)
 
 -- | Endpoint for defining a route to provide a websocket. In contrast
 -- to the 'WebSocketConduit', this endpoint only produces data. It can

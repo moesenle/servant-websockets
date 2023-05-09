@@ -19,7 +19,7 @@ import Servant                  ((:<|>) (..), (:>), Proxy (..), Server, serve)
 import qualified Data.Conduit.List as CL
 
 
-type API = "echo" :> WebSocketConduit Value Value
+type API = "echo" :> WebSocketConduit Text Text
            :<|> "hello" :> WebSocketSource Text
 
 startApp :: IO ()
@@ -36,7 +36,7 @@ api = Proxy
 server :: Server API
 server = echo :<|> hello
 
-echo :: Monad m => ConduitT Value Value m ()
+echo :: Monad m => ConduitT Text Text m ()
 echo = CL.map id
 
 hello :: MonadIO m => ConduitT () Text m ()
