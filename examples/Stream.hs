@@ -12,8 +12,8 @@ import Data.Foldable            (forM_)
 import Data.Text                (pack)
 import Network.Wai              (Application)
 import Network.Wai.Handler.Warp (run)
-import Network.WebSockets       (Connection, forkPingThread, sendTextData)
-import Servant                  ((:>), Proxy (..), Server, serve)
+import Network.WebSockets       (Connection, forkPingThread, sendTextData, withPingThread)
+import Servant                  (Proxy (..), Server, serve, (:>))
 
 type WebSocketApi = "stream" :> WebSocket
 
@@ -33,8 +33,7 @@ server = streamData
  where
    streamData :: MonadIO m => Connection -> m ()
    streamData c = liftIO . forM_ [1..] $ \i -> do
-     forkPingThread c 10
-     sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
+     withPingThread c 10 (pure ()) $ sendTextData c (pack $ show (i :: Int)) >> threadDelay 1000000
 
 main :: IO ()
 main = startApp

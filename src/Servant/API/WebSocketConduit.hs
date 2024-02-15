@@ -1,36 +1,44 @@
-{-# LANGUAGE CPP                   #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE AllowAmbiguousTypes      #-}
+{-# LANGUAGE CPP                      #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE FlexibleContexts         #-}
+{-# LANGUAGE FlexibleInstances        #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
+{-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE RoleAnnotations          #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeApplications         #-}
+{-# LANGUAGE TypeFamilies             #-}
 
 module Servant.API.WebSocketConduit where
 
-import Control.Concurrent                         (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.Async                   (race_)
-import Control.Monad                              (forever, void, (>=>))
-import Control.Monad.Catch                        (handle)
-import Control.Monad.IO.Class                     (liftIO)
-import Control.Monad.Trans.Control                (MonadBaseControl)
-import Control.Monad.Trans.Resource               (MonadUnliftIO, ResourceT, runResourceT)
-import Data.Aeson                                 (FromJSON, ToJSON, decode, encode)
-import Data.ByteString.Lazy                       (fromStrict)
-import Data.Conduit                               (ConduitT, runConduitRes, yieldM, (.|))
-import Data.Proxy                                 (Proxy (..))
-import Data.Text                                  (Text)
-import Data.Void                                  (Void)
-import Network.Wai.Handler.WebSockets             (websocketsOr)
-import Network.WebSockets                         (Connection, ConnectionException, acceptRequest,
-                                                   defaultConnectionOptions, forkPingThread, receiveData,
-                                                   receiveDataMessage, sendClose, sendTextData)
-import Servant.Server                             (HasServer (..), ServerError (..), ServerT)
-import Servant.Server.Internal.Router             (leafRouter)
-import Servant.Server.Internal.RouteResult        (RouteResult (..))
-import Servant.Server.Internal.Delayed            (runDelayed)
-
-import qualified Data.Conduit.List as CL
+import           Conduit                             (ConduitT, MonadIO (liftIO), MonadUnliftIO (..), ResourceT, Void,
+                                                      runConduitRes, runResourceT, yieldM, (.|))
+import           Control.Concurrent                  (newEmptyMVar, putMVar, takeMVar)
+import           Control.Concurrent.Async            (race_)
+import           Control.Monad                       (forever, void, (>=>))
+import           Control.Monad.Catch                 (handle)
+import           Control.Monad.Trans.Control         (MonadBaseControl)
+import           Data.Aeson                          (FromJSON, ToJSON, decode, encode)
+import           Data.ByteString                     (ByteString, fromStrict)
+import qualified Data.ByteString.Lazy                as L
+import qualified Data.Conduit.List                   as CL
+import           Data.Kind                           (Constraint, Type)
+import           Data.Proxy                          (Proxy (..))
+import           Data.String                         (IsString (..))
+import           Data.Text                           (Text)
+import           GHC.TypeLits                        (Symbol, symbolVal)
+import           Network.Wai.Handler.WebSockets      (websocketsOr)
+import           Network.WebSockets                  (AcceptRequest (acceptHeaders), Connection, ConnectionException,
+                                                      PendingConnection (..), RequestHead (requestHeaders), ServerApp,
+                                                      acceptRequest, acceptRequestWith, defaultAcceptRequest,
+                                                      defaultConnectionOptions, receiveData, receiveDataMessage,
+                                                      sendBinaryData, sendClose, sendTextData, withPingThread)
+import           Servant.Server                      (HasServer (..), ServerError (..), ServerT)
+import           Servant.Server.Internal.Delayed     (runDelayed)
+import           Servant.Server.Internal.Router      (leafRouter)
+import           Servant.Server.Internal.RouteResult (RouteResult (..))
 
 -- | Endpoint for defining a route to provide a websocket. In contrast
 -- to the 'WebSocket' endpoint, 'WebSocketConduit' provides a
@@ -56,11 +64,52 @@ import qualified Data.Conduit.List as CL
 --
 -- Note that the input format on the web socket is JSON, hence this
 -- example only echos valid JSON data.
-data WebSocketConduit i o
+type MessageType :: Type
+data MessageType = JSONMessage | BinaryMessage
 
-instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
+type role WebSocketConduitRaw nominal nominal nominal nominal
+type WebSocketConduitRaw :: Maybe Symbol -> MessageType -> Type -> Type -> Type
+data WebSocketConduitRaw msec mt i o
 
-  type ServerT (WebSocketConduit i o) m = ConduitT i o (ResourceT IO) ()
+type SecWebSocketProtocol :: Symbol
+type SecWebSocketProtocol = "Sec-WebSocket-Protocol"
+
+secWebSocketProtocol :: IsString s => s
+secWebSocketProtocol = fromString $ symbolVal (Proxy @SecWebSocketProtocol)
+
+type WebSocketConduit = WebSocketConduitRaw 'Nothing 'JSONMessage
+type WebSocketConduitBinary = WebSocketConduitRaw 'Nothing 'BinaryMessage
+type WebSocketConduitWithSec = WebSocketConduitRaw ('Just SecWebSocketProtocol)
+
+type AcceptsConnection :: Maybe Symbol -> Constraint
+class AcceptsConnection a where acceptance :: PendingConnection -> IO Connection
+
+instance AcceptsConnection ('Just a) where
+  acceptance pending =
+    let echoSec = case filter (\(hn, _) -> hn == secWebSocketProtocol)
+          . requestHeaders $ pendingRequest pending of
+          (_,yup):_ -> (:) (secWebSocketProtocol, yup)
+          []        -> id
+    in acceptRequestWith pending defaultAcceptRequest { acceptHeaders = echoSec $ acceptHeaders defaultAcceptRequest }
+
+instance AcceptsConnection 'Nothing where
+  acceptance pending = acceptRequestWith pending defaultAcceptRequest
+
+type SocketBracket :: MessageType -> Type -> Type -> Constraint
+class SocketBracket mt i o where
+  socketBracket :: MonadIO m => ConduitT i o m () -> Connection -> ConduitT ByteString c m ()
+
+instance (FromJSON i, ToJSON o) => SocketBracket 'JSONMessage i o where
+  socketBracket cond c =
+    CL.mapMaybe (decode . fromStrict) .| cond .| CL.mapM_ (liftIO . sendTextData c . encode)
+
+instance SocketBracket 'BinaryMessage L.ByteString L.ByteString where
+  socketBracket cond c =
+    CL.map fromStrict .| cond .| CL.mapM_ (liftIO . sendBinaryData c)
+
+instance (FromJSON i, ToJSON o, AcceptsConnection msec, SocketBracket mt i o) => HasServer (WebSocketConduitRaw msec mt i o) ctx where
+
+  type ServerT (WebSocketConduitRaw msec mt i o) m = ConduitT i o (ResourceT IO) ()
 
 #if MIN_VERSION_servant_server(0,12,0)
   hoistServerWithContext _ _ _ svr = svr
@@ -69,23 +118,21 @@ instance (FromJSON i, ToJSON o) => HasServer (WebSocketConduit i o) ctx where
   route Proxy _ app = leafRouter $ \env request respond -> runResourceT $
     runDelayed app env request >>= liftIO . go request respond
    where
-    go request respond (Route cond) =
-      websocketsOr
-        defaultConnectionOptions
-        (runWSApp cond)
-        (\_ _ -> respond $ Fail upgradeRequired)
-        request (respond . Route)
+    go request respond (Route cond) = websocketsOr
+      defaultConnectionOptions
+      (runWSApp cond :: ServerApp)
+      (\_ _ -> respond $ Fail upgradeRequired) request (respond . Route)
+
     go _ respond (Fail e) = respond $ Fail e
     go _ respond (FailFatal e) = respond $ FailFatal e
 
-    runWSApp cond = acceptRequest >=> \c -> handle (\(_ :: ConnectionException) -> return ()) $ do
-      i <- newEmptyMVar
-      race_ (forever $ receiveData c >>= putMVar i) $
-        runConduitWebSocket c $
-          forever (yieldM . liftIO $ takeMVar i)
-          .| CL.mapMaybe (decode . fromStrict)
-          .| cond
-          .| CL.mapM_ (liftIO . sendTextData c . encode)
+    runWSApp cond pending = do
+      c <- acceptance @msec pending
+      handle (\(_ :: ConnectionException) -> return ()) $ do
+        i <- newEmptyMVar
+        race_ (forever $ receiveData c >>= putMVar i) .
+          runConduitWebSocket c $ forever (yieldM . liftIO $ takeMVar i)
+            .| socketBracket @mt cond c
 
 -- | Endpoint for defining a route to provide a websocket. In contrast
 -- to the 'WebSocketConduit', this endpoint only produces data. It can
@@ -133,15 +180,13 @@ instance ToJSON o => HasServer (WebSocketSource o) ctx where
         runConduitWebSocket c $ cond .| CL.mapM_ (liftIO . sendTextData c . encode)
 
 runConduitWebSocket :: (MonadBaseControl IO m, MonadUnliftIO m) => Connection -> ConduitT () Void (ResourceT m) () -> m ()
-runConduitWebSocket c a = do
-  liftIO $ forkPingThread c 10
-  void $ runConduitRes a
-  liftIO $ do
-    sendClose c ("Out of data" :: Text)
-    -- After sending the close message, we keep receiving packages
-    -- (and drop them) until the connection is actually closed,
-    -- which is indicated by an exception.
-    forever $ receiveDataMessage c
+runConduitWebSocket c a = withRunInIO $ \run -> withPingThread c 10 (pure ()) $ do
+  run . void $ runConduitRes a
+  sendClose c ("Out of data" :: Text)
+  -- After sending the close message, we keep receiving packages
+  -- (and drop them) until the connection is actually closed,
+  -- which is indicated by an exception.
+  forever $ receiveDataMessage c
 
 upgradeRequired :: ServerError
 upgradeRequired = ServerError { errHTTPCode = 426
