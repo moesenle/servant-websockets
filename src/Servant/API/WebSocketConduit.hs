@@ -22,7 +22,6 @@ import           Control.Monad.Catch                 (handle)
 import           Control.Monad.Trans.Control         (MonadBaseControl)
 import           Data.Aeson                          (FromJSON, ToJSON, decode, encode)
 import           Data.ByteString                     (ByteString, fromStrict)
-import qualified Data.ByteString.Lazy                as L
 import qualified Data.Conduit.List                   as CL
 import           Data.Kind                           (Constraint, Type)
 import           Data.Proxy                          (Proxy (..))
@@ -32,9 +31,10 @@ import           GHC.TypeLits                        (Symbol, symbolVal)
 import           Network.Wai.Handler.WebSockets      (websocketsOr)
 import           Network.WebSockets                  (AcceptRequest (acceptHeaders), Connection, ConnectionException,
                                                       PendingConnection (..), RequestHead (requestHeaders), ServerApp,
-                                                      acceptRequest, acceptRequestWith, defaultAcceptRequest,
-                                                      defaultConnectionOptions, receiveData, receiveDataMessage,
-                                                      sendBinaryData, sendClose, sendTextData, withPingThread)
+                                                      WebSocketsData, acceptRequest, acceptRequestWith,
+                                                      defaultAcceptRequest, defaultConnectionOptions, receiveData,
+                                                      receiveDataMessage, sendBinaryData, sendClose, sendTextData,
+                                                      withPingThread)
 import           Servant.Server                      (HasServer (..), ServerError (..), ServerT)
 import           Servant.Server.Internal.Delayed     (runDelayed)
 import           Servant.Server.Internal.Router      (leafRouter)
@@ -103,11 +103,11 @@ instance (FromJSON i, ToJSON o) => SocketBracket 'JSONMessage i o where
   socketBracket cond c =
     CL.mapMaybe (decode . fromStrict) .| cond .| CL.mapM_ (liftIO . sendTextData c . encode)
 
-instance SocketBracket 'BinaryMessage L.ByteString L.ByteString where
+instance (FromJSON i, WebSocketsData o) => SocketBracket 'BinaryMessage i o where
   socketBracket cond c =
-    CL.map fromStrict .| cond .| CL.mapM_ (liftIO . sendBinaryData c)
+    CL.mapMaybe (decode . fromStrict) .| cond .| CL.mapM_ (liftIO . sendBinaryData c)
 
-instance (FromJSON i, ToJSON o, AcceptsConnection msec, SocketBracket mt i o) => HasServer (WebSocketConduitRaw msec mt i o) ctx where
+instance (AcceptsConnection msec, SocketBracket mt i o) => HasServer (WebSocketConduitRaw msec mt i o) ctx where
 
   type ServerT (WebSocketConduitRaw msec mt i o) m = ConduitT i o (ResourceT IO) ()
 
