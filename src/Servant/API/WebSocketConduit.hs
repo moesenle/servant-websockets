@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes      #-}
 {-# LANGUAGE CPP                      #-}
 {-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE DeriveGeneric            #-}
 {-# LANGUAGE FlexibleContexts         #-}
 {-# LANGUAGE FlexibleInstances        #-}
 {-# LANGUAGE MultiParamTypeClasses    #-}
@@ -27,6 +28,8 @@ import           Data.Kind                           (Constraint, Type)
 import           Data.Proxy                          (Proxy (..))
 import           Data.String                         (IsString (..))
 import           Data.Text                           (Text)
+import           Data.Typeable                       (Typeable)
+import           GHC.Generics                        (Generic)
 import           GHC.TypeLits                        (Symbol, symbolVal)
 import           Network.Wai.Handler.WebSockets      (websocketsOr)
 import           Network.WebSockets                  (AcceptRequest (acceptHeaders), Connection, ConnectionException,
@@ -66,6 +69,7 @@ import           Servant.Server.Internal.RouteResult (RouteResult (..))
 -- example only echos valid JSON data.
 type MessageType :: Type
 data MessageType = JSONMessage | BinaryMessage
+  deriving (Eq, Ord, Enum, Bounded, Generic, Typeable)
 
 type role WebSocketConduitRaw nominal nominal nominal nominal
 type WebSocketConduitRaw :: Maybe Symbol -> MessageType -> Type -> Type -> Type
